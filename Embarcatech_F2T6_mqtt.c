@@ -1,10 +1,4 @@
- /* AULA IoT - Ricardo Prates - 001 - Cliente MQTT - Publisher:/Temperatura; Subscribed:/led
- *
- * Material de suporte - 27/05/2025
- * 
- * Código adaptado de: https://github.com/raspberrypi/pico-examples/tree/master/pico_w/wifi/mqtt 
- */
-
+// -- Inclusão de bibliotecas
 #include "pico/stdlib.h"            // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
 #include "pico/cyw43_arch.h"        // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
 #include "pico/unique_id.h"         // Biblioteca com recursos para trabalhar com os pinos GPIO do Raspberry Pi Pico
@@ -12,6 +6,7 @@
 #include "hardware/gpio.h"          // Biblioteca de hardware de GPIO
 #include "hardware/irq.h"           // Biblioteca de hardware de interrupções
 #include "hardware/adc.h"           // Biblioteca de hardware para conversão ADC
+#include "hardware/pwm.h"           // Biblioteca de hardware de PWM
 
 #include "lwip/apps/mqtt.h"         // Biblioteca LWIP MQTT -  fornece funções e recursos para conexão MQTT
 #include "lwip/apps/mqtt_priv.h"    // Biblioteca que fornece funções e recursos para Geração de Conexões
@@ -23,6 +18,66 @@
 #define MQTT_SERVER "-"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
 #define MQTT_USERNAME "-"     // Substitua pelo nome da host MQTT - Username
 #define MQTT_PASSWORD "-"     // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
+
+// -- Definição de constantes
+// GPIO
+#define button_A 5 // Define o Botão A na GPIO 5
+#define button_B 6 // Define o Botão B na GPIO 6
+#define LED_Green 11 // Define o LED Verde na GPIO 11
+#define LED_Blue 12 // Define o LED Azul na GPIO 12
+#define LED_Red 13 // Define o LED Vermelho na GPIO 13
+
+// Variáveis globais
+static volatile uint32_t last_time = 0; // Armazena o tempo do último clique dos botões
+
+// LED RGB
+volatile bool LED_activate = false; // Armazena se o LED RGB está ativo
+volatile int intensidade = 100; // Guarda o valor da intensidade dos LEDs
+volatile int cor_verde = 255; // Guarda o valor de 0 a 255 para o LED Verde
+volatile int cor_azul = 255; // Guarda o valor de 0 a 255 para o LED Azul
+volatile int cor_vermelho = 255; // Guarda o valor de 0 a 255 para o LED Vermelho
+
+// Função para definir a cor e intensidade do LED RGB
+void cor_led_rgb(){
+    if(LED_activate){
+        float level_verde = ((cor_verde/255.0) * intensidade);
+        pwm_set_gpio_level(LED_Green, level_verde);
+    
+        float level_azul = ((cor_azul/255.0) * intensidade);
+        pwm_set_gpio_level(LED_Blue, level_azul);
+    
+        float level_vermelho = ((cor_vermelho/255.0) * intensidade);
+        pwm_set_gpio_level(LED_Red, level_vermelho);
+    }else{
+        pwm_set_gpio_level(LED_Green, 0);
+        pwm_set_gpio_level(LED_Blue, 0);
+        pwm_set_gpio_level(LED_Red, 0);
+    }
+}
+
+// Função para fazer a configuração de PWM para GPIO
+void pwm_init_gpio(uint gpio, uint wrap){
+    gpio_set_function(gpio, GPIO_FUNC_PWM); // Define a função da porta GPIO como PWM
+    uint slice = pwm_gpio_to_slice_num(gpio); // Guarda o canal do PWM
+    pwm_set_wrap(slice, wrap); // Define o valor do Wrap do canal correspondente
+    pwm_set_enabled(slice, true); // Habilita o PWM no canal
+}
+
+// Função de callback de interrupção dos botões
+void gpio_irq_handler(uint gpio, uint32_t events){
+    // Debouncing
+    uint32_t current_time = to_us_since_boot(get_absolute_time()); // Pega o tempo atual e transforma em us
+    // 200ms
+    if(current_time - last_time > 200000){
+        last_time = current_time; // Atualização de tempo do último clique
+
+        if(gpio == button_A){
+            LED_activate = !LED_activate;
+        }else if(gpio == button_B){
+            reset_usb_boot(0, 0);
+        }
+    }
+}
 
 // Definição da escala de temperatura
 #ifndef TEMPERATURE_UNITS
@@ -115,6 +170,12 @@ static const char *full_topic(MQTT_CLIENT_DATA_T *state, const char *name);
 // Controle do LED 
 static void control_led(MQTT_CLIENT_DATA_T *state, bool on);
 
+// Função para tratar a mensagem do color picker
+static void control_led_color(MQTT_CLIENT_DATA_T* state, const char* color_str);
+
+// Função para tratar a mensagem do slider
+static void control_led_intensity(MQTT_CLIENT_DATA_T* state, const char* intensity_str);
+
 // Publicar temperatura
 static void publish_temperature(MQTT_CLIENT_DATA_T *state);
 
@@ -156,6 +217,23 @@ int main(void) {
     adc_init();
     adc_set_temp_sensor_enabled(true);
     adc_select_input(4);
+
+    // GPIO
+    gpio_init(button_A); // Inicia a GPIO 5 do botão A
+    gpio_set_dir(button_A, GPIO_IN); // Define a direção da GPIO 5 do botão A como entrada
+    gpio_pull_up(button_A); // Habilita o resistor de pull up da GPIO 5 do botão A
+    gpio_init(button_B); // Inicia a GPIO 6 do botão Bbutton_B
+    gpio_set_dir(button_B, GPIO_IN); // Define a direção da GPIO 6 do botão Bbutton_B como entrada
+    gpio_pull_up(button_B); // Habilita o resistor de pull up da GPIO 6 do botão Bbutton_B
+
+    // PWM
+    pwm_init_gpio(LED_Green, 100); // Inicia o PWM para a GPIO 11 do LED Verde
+    pwm_init_gpio(LED_Blue, 100); // Inicia o PWM para a GPIO 12 do LED Azul
+    pwm_init_gpio(LED_Red, 100); // Inicia o PWM para a GPIO 13 do LED Vermelho
+
+    // Funções de interrupção dos botões A e B
+    gpio_set_irq_enabled_with_callback(button_A, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
+    gpio_set_irq_enabled_with_callback(button_B, GPIO_IRQ_EDGE_FALL, true, &gpio_irq_handler);
 
     // Cria registro com os dados do cliente
     static MQTT_CLIENT_DATA_T state;
@@ -284,11 +362,48 @@ static void control_led(MQTT_CLIENT_DATA_T *state, bool on) {
     // Publish state on /state topic and on/off led board
     const char* message = on ? "On" : "Off";
     if (on)
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1);
+        LED_activate = true;
     else
-        cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 0);
+        LED_activate = false;
 
+    cor_led_rgb();
+ 
     mqtt_publish(state->mqtt_client_inst, full_topic(state, "/led/state"), message, strlen(message), MQTT_PUBLISH_QOS, MQTT_PUBLISH_RETAIN, pub_request_cb, state);
+}
+
+// Função para tratar a mensagem do color picker
+static void control_led_color(MQTT_CLIENT_DATA_T* state, const char* color_str) {
+    if (strlen(color_str) != 6) {
+        INFO_printf("Color string length invalid: %s\n", color_str);
+        return;
+    }
+
+    // Converte a string hexadecimal para valores RGB
+    char buf[3] = {0};
+
+    buf[0] = color_str[0]; buf[1] = color_str[1];
+    cor_vermelho = (int)strtol(buf, NULL, 16);
+
+    buf[0] = color_str[2]; buf[1] = color_str[3];
+    cor_verde = (int)strtol(buf, NULL, 16);
+
+    buf[0] = color_str[4]; buf[1] = color_str[5];
+    cor_azul = (int)strtol(buf, NULL, 16);
+
+    cor_led_rgb();
+
+    INFO_printf("LED Color set to R: %d, G: %d, B: %d\n", cor_vermelho, cor_verde, cor_azul);
+}
+
+// Função para tratar a mensagem do slider
+static void control_led_intensity(MQTT_CLIENT_DATA_T* state, const char* intensity_str) {
+    int value = atoi(intensity_str);
+
+    intensidade = (int)value;
+
+    cor_led_rgb();
+ 
+    INFO_printf("LED Intensity set to: %d%%\n", led_intensity);
 }
 
 // Publicar temperatura
@@ -334,6 +449,8 @@ static void unsub_request_cb(void *arg, err_t err) {
 static void sub_unsub_topics(MQTT_CLIENT_DATA_T* state, bool sub) {
     mqtt_request_cb_t cb = sub ? sub_request_cb : unsub_request_cb;
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/led"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
+    mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/led/color"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
+    mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/led/intensity"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/print"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/ping"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
     mqtt_sub_unsub(state->mqtt_client_inst, full_topic(state, "/exit"), MQTT_SUBSCRIBE_QOS, cb, state, sub);
@@ -367,6 +484,10 @@ static void mqtt_incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t f
     } else if (strcmp(basic_topic, "/exit") == 0) {
         state->stop_client = true; // stop the client when ALL subscriptions are stopped
         sub_unsub_topics(state, false); // unsubscribe
+    }else if (strcmp(basic_topic, "/led/color") == 0) {
+        control_led_color(state, state->data);
+    } else if (strcmp(basic_topic, "/led/intensity") == 0) {
+        control_led_intensity(state, state->data);
     }
 }
 
