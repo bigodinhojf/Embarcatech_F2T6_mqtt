@@ -48,6 +48,7 @@ pico_enable_stdio_usb(Embarcatech_F2T6_mqtt 1)
 target_link_libraries(Embarcatech_F2T6_mqtt
     pico_stdlib
     hardware_adc
+    hardware_pwm
     pico_cyw43_arch_lwip_threadsafe_background
     pico_lwip_mqtt
     pico_mbedtls
