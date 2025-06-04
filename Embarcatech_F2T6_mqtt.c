@@ -2,6 +2,7 @@
 #include "pico/stdlib.h"            // Biblioteca da Raspberry Pi Pico para funções padrão (GPIO, temporização, etc.)
 #include "pico/cyw43_arch.h"        // Biblioteca para arquitetura Wi-Fi da Pico com CYW43
 #include "pico/unique_id.h"         // Biblioteca com recursos para trabalhar com os pinos GPIO do Raspberry Pi Pico
+#include "pico/bootrom.h"           // Biblioteca para bootsel
 
 #include "hardware/gpio.h"          // Biblioteca de hardware de GPIO
 #include "hardware/irq.h"           // Biblioteca de hardware de interrupções
@@ -13,11 +14,11 @@
 #include "lwip/dns.h"               // Biblioteca que fornece funções e recursos suporte DNS:
 #include "lwip/altcp_tls.h"         // Biblioteca que fornece funções e recursos para conexões seguras usando TLS:
 
-#define WIFI_SSID "-"                  // Substitua pelo nome da sua rede Wi-Fi
-#define WIFI_PASSWORD "-"      // Substitua pela senha da sua rede Wi-Fi
-#define MQTT_SERVER "-"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
-#define MQTT_USERNAME "-"     // Substitua pelo nome da host MQTT - Username
-#define MQTT_PASSWORD "-"     // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
+#define WIFI_SSID "JR TELECOM- TORRES & FALCAO"                  // Substitua pelo nome da sua rede Wi-Fi
+#define WIFI_PASSWORD "mantt2019"      // Substitua pela senha da sua rede Wi-Fi
+#define MQTT_SERVER "192.168.1.6"                // Substitua pelo endereço do host - broket MQTT: Ex: 192.168.1.107
+#define MQTT_USERNAME "bigodinhojf"     // Substitua pelo nome da host MQTT - Username
+#define MQTT_PASSWORD "teste"     // Substitua pelo Password da host MQTT - credencial de acesso - caso exista
 
 // -- Definição de constantes
 // GPIO
@@ -374,6 +375,11 @@ static void control_led(MQTT_CLIENT_DATA_T *state, bool on) {
 
 // Função para tratar a mensagem do color picker
 static void control_led_color(MQTT_CLIENT_DATA_T* state, const char* color_str) {
+    
+    if (color_str[0] == '#') {
+        color_str++; // Pula o '#'
+    }
+
     if (strlen(color_str) != 6) {
         INFO_printf("Color string length invalid: %s\n", color_str);
         return;
@@ -404,7 +410,7 @@ static void control_led_intensity(MQTT_CLIENT_DATA_T* state, const char* intensi
 
     cor_led_rgb();
  
-    INFO_printf("LED Intensity set to: %d%%\n", led_intensity);
+    INFO_printf("LED Intensity set to: %d%%\n", intensidade);
 }
 
 // Publicar temperatura
