@@ -73,6 +73,7 @@ void gpio_irq_handler(uint gpio, uint32_t events){
 
         if(gpio == button_A){
             LED_activate = !LED_activate;
+            cor_led_rgb();
         }else if(gpio == button_B){
             reset_usb_boot(0, 0);
         }
